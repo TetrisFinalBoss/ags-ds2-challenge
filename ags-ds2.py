@@ -126,6 +126,7 @@ class EllipsesSearcher:
         
         if self.useStatFile:
             self.statFile.write("===\n%s\n===\n"%(fname))
+            self.statFile.flush()
         
         # First - try to get statistics from file,
         # so we don't have to recalculate stats once again
@@ -140,6 +141,7 @@ class EllipsesSearcher:
                         # Write stats to user specified file, if enabled
                         if self.useStatFile:
                             self.statFile.write("'......' is found at %s:%s (from stat file)\n"%(m.group(1),m.group(2)))
+                            self.statFile.flush()
                         # And increase counter
                         count6 += 1
                 
@@ -203,6 +205,7 @@ class EllipsesSearcher:
                     # Write to user specified file
                     if self.useStatFile:
                         self.statFile.write("'......' is found at %d:%d\n"%(secs/60,secs%60))
+                        self.statFile.flush()
                     
                     # And store stats for future use
                     statfile.write('%d:%d %d\n'%(secs/60,secs%60,0))
@@ -227,15 +230,13 @@ class EllipsesSearcher:
         # And also write to user specified file
         if self.useStatFile:
             self.statFile.write("===\n'......' is said %d times\n\n"%(count6))
+            self.statFile.flush()
         
         v.release()
         statfile.close()
     
     def total(self):
         return self.__total
-        
-    def stats(self):
-        return self.__statistics + "===\n'......' is said %d times in this playthrough"%(self.__total)
 
 if __name__=="__main__":
     # get Devil Summoner 2 playlist
