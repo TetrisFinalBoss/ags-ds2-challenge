@@ -332,8 +332,8 @@ class EllipsesSearcher:
                 if k==ord('q'):
                     sys.exit(0)
                 elif k==ord('s'):
-                    cv2.imwrite('snapshot_orig.png',box)
-                    cv2.imwrite('snapshot_modified.png',t)
+                    cv2.imwrite('snapshots/snapshot_orig.png',box)
+                    cv2.imwrite('snapshots/snapshot_modified.png',t)
             
             # Display some progress
             progress = frame_no*100/frame_count
@@ -409,7 +409,7 @@ if __name__=="__main__":
 
     print "We are done!"
     if downloadOnly:
-        print "PLaylist downloaded!"
+        print "Playlist downloaded!"
     else:
         print el.total()
         if el.useStatFile:
