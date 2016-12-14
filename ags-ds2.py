@@ -4,7 +4,7 @@
 """ags-ds2.py: A German Spy's Devil Summoner 2 ellipses challenge."""
 
 __author__      = "TetrisFinalBoss"
-__version__     = "0.2"
+__version__     = "0.3"
 
 import sys
 import cv2
@@ -110,7 +110,7 @@ class MidSentenceEllipsesDetector:
         self.__ncount = 0
         self.__count = 0
         
-        self.__dialogPattern = cv2.imread("dialog_pattern.png",cv2.IMREAD_GRAYSCALE)
+        self.__dialogPattern = cv2.imread(os.path.dirname(sys.argv[0]) + "/dialog_pattern.png",cv2.IMREAD_GRAYSCALE)
     
     def detect(self, img):
         ret = []
@@ -153,18 +153,29 @@ class MidSentenceEllipsesDetector:
         for i in xrange(3):
             yoff = 20+i*20+4
             localMinInRow(res[yoff:yoff+18,20:400],(20,yoff))
-            
+        
+        # Sometimes objects may be lost and caught again later
+        # Let's try to address this issue
         l = len(ret)
+        
+        # Get new objects count
         self.__ncount = l - self.__count
         if self.__ncount<0:
-            self.__ncount = 0            
-        self.__count = l
+            self.__ncount = 0
+        
+        # Store object count, but assuming, that objects can't disappear
+        # during same dialog line, so it alway stays at maximum level
+        if self.__dialogPattern is not None:
+            self.__count = max(l,self.__count)
+        else:
+            # And if we can't find dialog pattern, then just store current value
+            self.__count = l
         
         return ret
     
     def reset(self):
-        self.__count = 0
         self.__ncount = 0
+        self.__pcount = 0
         
     def name(self):
         return "'...'"
@@ -224,7 +235,7 @@ class EllipsesSearcher:
                     m = re.search('([\d]+):([\d]+)\s([\d]+)',ln)
                     if m:
                         # Last parameter is object type - i.e. detector number
-                        det = int(m.group(0))
+                        det = int(m.group(3))
                         # Write stats to user specified file, if enabled
                         if self.useStatFile:
                             self.statFile.write("%s is found at %s:%s (from stat file)\n"%(self.__detectors[det].name(),m.group(1),m.group(2)))
@@ -245,7 +256,7 @@ class EllipsesSearcher:
                     self.statFile.write("===\n")
                     for e in zip(map(lambda x: x.name(), self.__detectors), count):
                         self.statFile.write("%s is said %d times\n"%e)
-                    self.statFile.write("n")
+                    self.statFile.write("\n")
                     self.statFile.flush()
                 
                 # And that's it, this file is done
