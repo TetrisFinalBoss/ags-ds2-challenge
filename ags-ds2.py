@@ -4,7 +4,7 @@
 """ags-ds2.py: A German Spy's Devil Summoner 2 ellipses challenge."""
 
 __author__      = "TetrisFinalBoss"
-__version__     = "0.3"
+__version__     = "0.3.1"
 
 import sys
 import cv2
@@ -33,11 +33,14 @@ def tsum(t1,t2):
     
 class MeaningfulSilenceDetector:
     MATCHMINIMUM = 0.4
+    D_MATCHMINIMUM = 0.5
     
     PATTERN_SIZE = (16,60,1)
     PATTERN_OFFSET = {'x':18,'y':10}
 
     SEARCH_WINDOW = {'left':10, 'top':10, 'right':110, 'bottom':40}
+    
+    D_WINDOW = {'left':396, 'top':61, 'right':418, 'bottom':84}
     
     PATTERN_COLOR = 127
     
@@ -51,8 +54,30 @@ class MeaningfulSilenceDetector:
                           -1)
         self.__count = 0
         self.__ncount = 0
+        
+        # Try use dialog pattern for this detector too
+        self.__dialogPattern = cv2.imread(os.path.dirname(sys.argv[0]) + "/dialog_pattern.png",cv2.IMREAD_GRAYSCALE)
+        self.__pobj = []
     
     def detect(self, img):
+        ret = []
+        
+        # Look for dialog arrow first
+        if self.__dialogPattern is not None:
+            res = cv2.matchTemplate(img[self.D_WINDOW['top']:self.D_WINDOW['bottom'],self.D_WINDOW['left']:self.D_WINDOW['right']],
+                                    self.__dialogPattern,
+                                    cv2.TM_SQDIFF_NORMED)
+            min_val = cv2.minMaxLoc(res)[0]
+            if min_val>self.D_MATCHMINIMUM:
+                # If no dialog arrow is found reset all values and return nothing
+                self.__ncount = 0
+                self.__count = 0
+                self.__pobj = []
+                return ret
+            else:
+                # Set "default" return value to previously found object in this dialog entry
+                ret = self.__pobj
+        
         # Search for pattern
         res = cv2.matchTemplate(img[self.SEARCH_WINDOW['top']:self.SEARCH_WINDOW['bottom'],
                                     self.SEARCH_WINDOW['left']:self.SEARCH_WINDOW['right']],
@@ -61,23 +86,29 @@ class MeaningfulSilenceDetector:
         
         # There can be only one "......" in dialog, so we totally fine with global minimum
         min_val, max_val, min_loc, max_loc = cv2.minMaxLoc(res)
-        ret = []
+        
         if min_val < self.MATCHMINIMUM:
             top_left = tsum(min_loc, (self.SEARCH_WINDOW['left'],self.SEARCH_WINDOW['top']))
             bottom_right = tsum(top_left, (self.PATTERN_SIZE[1],self.PATTERN_SIZE[0]))
             
-            ret.append((top_left,bottom_right))            
+            # Something is found, set return value and store this object for future use
+            ret = [(top_left,bottom_right)]
+            self.__pobj = ret
             
             self.__ncount = self.__count==0 and 1 or 0
             self.__count = 1
         else:
-            self.__count = 0
+            # Nothing is found, but if we've already found something in this dialog box
+            # let's assume that this object is still present
+            self.__count = len(self.__pobj)
             self.__ncount = 0
+        
         return ret
     
     def reset(self):
         self.__count = 0
         self.__ncount = 0
+        self.__pobj = []
     
     def name(self):
         return "'......'"
@@ -90,7 +121,7 @@ class MeaningfulSilenceDetector:
     
 class MidSentenceEllipsesDetector:
     MATCHMINIMUM = 0.5
-    D_MATCHMINIMUM = 0.4
+    D_MATCHMINIMUM = 0.5
     
     PATTERN_SIZE = (8,20,1)
     PATTERN_OFFSET = {'x':1,'y':3}
@@ -128,7 +159,7 @@ class MidSentenceEllipsesDetector:
         
         res = cv2.matchTemplate(img,self.__pattern,cv2.TM_SQDIFF_NORMED)
         
-        # For each row in dialog do recursive search for global maximums
+        # For each row in dialog do recursive search for global minimums
         def localMinInRow(row,offset):
             # Current dimensions
             h,w = row.shape
@@ -170,6 +201,10 @@ class MidSentenceEllipsesDetector:
         else:
             # And if we can't find dialog pattern, then just store current value
             self.__count = l
+        
+        # Also display dialog rectangle for debug
+        #if self.__dialogPattern is not None:
+        #    ret.append(((self.D_WINDOW['left'],self.D_WINDOW['top']),(self.D_WINDOW['right'],self.D_WINDOW['bottom'])))
         
         return ret
     
@@ -277,6 +312,8 @@ class EllipsesSearcher:
         frame_count = int(v.get(cv2.cv.CV_CAP_PROP_FRAME_COUNT))
         frame_no = 0
         
+        previewRate = 1
+        
         while v.isOpened():
             ret, frame = v.read()
             frame_no+=1
@@ -284,10 +321,7 @@ class EllipsesSearcher:
             if not ret:
                 break
             
-            # The only thing we are looking for right now - is when
-            # character says nothing, only ellipses, we don't want to gather
-            # more complex statistics right now
-            # So threshold will work just fine, but we still work with whole dialog box
+            # Use simple threshold for dialog box
             box = frame[self.DIALOG['top']:self.DIALOG['bottom'],self.DIALOG['left']:self.DIALOG['right']]
             t = self.__thresh(box)
             
@@ -339,12 +373,16 @@ class EllipsesSearcher:
             # Show preview window if enabled             
             if self.preview:
                 cv2.imshow("Picture",t)
-                k = cv2.waitKey(1) & 0xff
+                k = cv2.waitKey(previewRate) & 0xff
                 if k==ord('q'):
                     sys.exit(0)
                 elif k==ord('s'):
                     cv2.imwrite('snapshots/snapshot_orig.png',box)
                     cv2.imwrite('snapshots/snapshot_modified.png',t)
+                elif k==ord('n'):
+                    previewRate = 0
+                elif k==ord('p'):
+                    previewRate = 1
             
             # Display some progress
             progress = frame_no*100/frame_count
