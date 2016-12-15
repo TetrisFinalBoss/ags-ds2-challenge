@@ -4,7 +4,7 @@
 """ags-ds2.py: A German Spy's Devil Summoner 2 ellipses challenge."""
 
 __author__      = "TetrisFinalBoss"
-__version__     = "0.3.1"
+__version__     = "0.4.0"
 
 import sys
 import cv2
@@ -31,16 +31,105 @@ def getFile(media):
 def tsum(t1,t2):
     return tuple(map(lambda x,y: x + y,t1,t2))
     
+class DialogLocator:
+    D_MATCHMINIMUM = 0.5
+    D_WINDOW = {'left':396, 'top':61, 'right':418, 'bottom':84}
+    
+    def __init__(self):
+        self.__dialogPattern = cv2.imread(os.path.dirname(sys.argv[0]) + "/dialog_pattern.png",cv2.IMREAD_GRAYSCALE)
+    
+    def locate(self, img):
+        res = cv2.matchTemplate(img[self.D_WINDOW['top']:self.D_WINDOW['bottom'],self.D_WINDOW['left']:self.D_WINDOW['right']],
+                                self.__dialogPattern,
+                                cv2.TM_SQDIFF_NORMED)
+        min_val = cv2.minMaxLoc(res)[0]
+        if min_val>self.D_MATCHMINIMUM:
+            return False
+        
+        return True
+    
+class CircumstancesExplainDetector:
+    MATCHMINIMUM = 0.4
+    
+    SEARCH_WINDOW = {'left':10, 'top':10, 'right':400, 'bottom':84}
+    
+    def __init__(self):
+        self.__count = 0
+        self.__ncount = 0
+        
+        self.__ec1Pattern = cv2.imread(os.path.dirname(sys.argv[0]) + "/ec1_pattern.png",cv2.IMREAD_GRAYSCALE)
+        self.__ec2Pattern = cv2.imread(os.path.dirname(sys.argv[0]) + "/ec2_pattern.png",cv2.IMREAD_GRAYSCALE)
+        
+        self.__ec1Dim = self.__ec1Pattern.shape
+        self.__ec2Dim = self.__ec2Pattern.shape
+    
+    def detect(self, img):
+        ret = []
+        
+        # Search for patterns, first 'explained'
+        res = cv2.matchTemplate(img[self.SEARCH_WINDOW['top']:self.SEARCH_WINDOW['bottom'],
+                                    self.SEARCH_WINDOW['left']:self.SEARCH_WINDOW['right']],
+                                self.__ec1Pattern,
+                                cv2.TM_SQDIFF_NORMED)
+        minmax = cv2.minMaxLoc(res)
+        if minmax[0] < self.MATCHMINIMUM:
+            top_left = tsum(minmax[2], (self.SEARCH_WINDOW['left'],self.SEARCH_WINDOW['top']))
+            bottom_right = tsum(top_left, (self.__ec1Dim[1],self.__ec1Dim[0]))
+            
+            ret.append((top_left,bottom_right))
+        else:
+            # No new objects, but __count stays the same until dialog is over
+            self.__ncount = 0
+            return ret
+        
+        # Second 'circumstances'
+        res = cv2.matchTemplate(img[self.SEARCH_WINDOW['top']:self.SEARCH_WINDOW['bottom'],
+                                    self.SEARCH_WINDOW['left']:self.SEARCH_WINDOW['right']],
+                                self.__ec2Pattern,
+                                cv2.TM_SQDIFF_NORMED)
+        minmax = cv2.minMaxLoc(res)
+        if minmax[0] < self.MATCHMINIMUM:
+            top_left = tsum(minmax[2], (self.SEARCH_WINDOW['left'],self.SEARCH_WINDOW['top']))
+            bottom_right = tsum(top_left, (self.__ec2Dim[1],self.__ec2Dim[0]))
+            
+            ret.append((top_left,bottom_right))
+        else:
+            # No new objects, but __count stays the same until dialog is over
+            self.__ncount = 0
+            return ret
+        
+        # Both are found, mess with counters
+        self.__ncount = self.__count==0 and 1 or 0
+        self.__count = 1
+        
+        return ret
+    
+    def reset(self):
+        self.__count = 0
+        self.__ncount = 0
+    
+    def dialogClosed(self):
+        # If no dialog arrow is found reset all values
+        self.__ncount = 0
+        self.__count = 0
+    
+    def name(self):
+        return "'explained the circumstances'"
+    
+    def uniqueObjects(self):
+        return False
+        
+    def newObjectsCount(self):
+        return self.__ncount
+    
+    
 class MeaningfulSilenceDetector:
     MATCHMINIMUM = 0.4
-    D_MATCHMINIMUM = 0.5
     
     PATTERN_SIZE = (16,60,1)
     PATTERN_OFFSET = {'x':18,'y':10}
 
     SEARCH_WINDOW = {'left':10, 'top':10, 'right':110, 'bottom':40}
-    
-    D_WINDOW = {'left':396, 'top':61, 'right':418, 'bottom':84}
     
     PATTERN_COLOR = 127
     
@@ -53,30 +142,13 @@ class MeaningfulSilenceDetector:
                           self.PATTERN_COLOR,
                           -1)
         self.__count = 0
-        self.__ncount = 0
-        
-        # Try use dialog pattern for this detector too
-        self.__dialogPattern = cv2.imread(os.path.dirname(sys.argv[0]) + "/dialog_pattern.png",cv2.IMREAD_GRAYSCALE)
+        self.__ncount = 0        
         self.__pobj = []
     
     def detect(self, img):
-        ret = []
-        
-        # Look for dialog arrow first
-        if self.__dialogPattern is not None:
-            res = cv2.matchTemplate(img[self.D_WINDOW['top']:self.D_WINDOW['bottom'],self.D_WINDOW['left']:self.D_WINDOW['right']],
-                                    self.__dialogPattern,
-                                    cv2.TM_SQDIFF_NORMED)
-            min_val = cv2.minMaxLoc(res)[0]
-            if min_val>self.D_MATCHMINIMUM:
-                # If no dialog arrow is found reset all values and return nothing
-                self.__ncount = 0
-                self.__count = 0
-                self.__pobj = []
-                return ret
-            else:
-                # Set "default" return value to previously found object in this dialog entry
-                ret = self.__pobj
+        # Set "default" return value to previously found object in this dialog entry
+        # which is reset to [] when dialog is closed
+        ret = self.__pobj
         
         # Search for pattern
         res = cv2.matchTemplate(img[self.SEARCH_WINDOW['top']:self.SEARCH_WINDOW['bottom'],
@@ -104,6 +176,11 @@ class MeaningfulSilenceDetector:
             self.__ncount = 0
         
         return ret
+        
+    def dialogClosed(self):
+        self.__count = 0
+        self.__ncount = 0
+        self.__pobj = []
     
     def reset(self):
         self.__count = 0
@@ -121,12 +198,9 @@ class MeaningfulSilenceDetector:
     
 class MidSentenceEllipsesDetector:
     MATCHMINIMUM = 0.5
-    D_MATCHMINIMUM = 0.5
     
     PATTERN_SIZE = (8,20,1)
     PATTERN_OFFSET = {'x':1,'y':3}
-
-    D_WINDOW = {'left':396, 'top':61, 'right':418, 'bottom':84}
     
     PATTERN_COLOR = 127
     
@@ -140,22 +214,9 @@ class MidSentenceEllipsesDetector:
                           -1)
         self.__ncount = 0
         self.__count = 0
-        
-        self.__dialogPattern = cv2.imread(os.path.dirname(sys.argv[0]) + "/dialog_pattern.png",cv2.IMREAD_GRAYSCALE)
     
     def detect(self, img):
         ret = []
-        
-        # Look for dialog arrow first
-        if self.__dialogPattern is not None:
-            res = cv2.matchTemplate(img[self.D_WINDOW['top']:self.D_WINDOW['bottom'],self.D_WINDOW['left']:self.D_WINDOW['right']],
-                                    self.__dialogPattern,
-                                    cv2.TM_SQDIFF_NORMED)
-            min_val = cv2.minMaxLoc(res)[0]
-            if min_val>self.D_MATCHMINIMUM:
-                self.__ncount = 0
-                self.__count = 0
-                return ret
         
         res = cv2.matchTemplate(img,self.__pattern,cv2.TM_SQDIFF_NORMED)
         
@@ -196,21 +257,17 @@ class MidSentenceEllipsesDetector:
         
         # Store object count, but assuming, that objects can't disappear
         # during same dialog line, so it alway stays at maximum level
-        if self.__dialogPattern is not None:
-            self.__count = max(l,self.__count)
-        else:
-            # And if we can't find dialog pattern, then just store current value
-            self.__count = l
-        
-        # Also display dialog rectangle for debug
-        #if self.__dialogPattern is not None:
-        #    ret.append(((self.D_WINDOW['left'],self.D_WINDOW['top']),(self.D_WINDOW['right'],self.D_WINDOW['bottom'])))
+        self.__count = max(l,self.__count)
         
         return ret
     
     def reset(self):
         self.__ncount = 0
-        self.__pcount = 0
+        self.__count = 0
+    
+    def dialogClosed(self):
+        self.__ncount = 0
+        self.__count = 0
         
     def name(self):
         return "'...'"
@@ -235,6 +292,10 @@ class EllipsesSearcher:
         
         self.__detectors.append(MeaningfulSilenceDetector())
         self.__detectors.append(MidSentenceEllipsesDetector())
+        self.__detectors.append(CircumstancesExplainDetector())
+        
+        # Init dialog locator
+        self.__dialogLocator = DialogLocator()
         
         # Reset other values
         self.__total = len(self.__detectors)*[0]
@@ -244,6 +305,7 @@ class EllipsesSearcher:
         self.useStatFile = False
         self.ignoreStat = False
         self.preview = False
+        self.detectorMask = 0xff
         
     def __initCounter(self, counter):
         counter.r
@@ -329,8 +391,18 @@ class EllipsesSearcher:
             shouldSaveSnapshot = False
             secs = int(v.get(cv2.cv.CV_CAP_PROP_POS_MSEC)/1000)
             
+            dialogClosed = not self.__dialogLocator.locate(t)
+            
             # Now apply all detectors for this frame
             for i in xrange(len(self.__detectors)):
+                # Check if detector is enabled
+                if (self.detectorMask & (1 << i)) == 0:
+                    continue
+                
+                if dialogClosed:
+                    self.__detectors[i].dialogClosed()
+                    continue
+                
                 # Apply detector to thresholded picture and store all found objects for this particular detector
                 items = self.__detectors[i].detect(t)
                 
@@ -415,19 +487,20 @@ if __name__=="__main__":
     downloadOnly = False
     
     try:
-        opts, args = getopt.getopt(sys.argv[1:],"hirdvf:")
+        opts, args = getopt.getopt(sys.argv[1:],"hirdvf:m:")
     except getopt.GetoptError as err:
         print str(err)
         sys.exit(1)
     
     for opt, arg in opts:
         if opt == '-h':
-            print 'Usage: %s [-h] [-i] [-r] [-d] [-v] [-f filename]'%(sys.argv[0])
+            print 'Usage: %s [-h] [-i] [-r] [-d] [-v] [-f filename] [-m mask]'%(sys.argv[0])
             print '-h         -- Show this help'
             print '-i         -- Save snapshots each time ellipses is found'
             print '-r         -- Ignore (reset) previously collected statistics'
             print '-d         -- Download only'
             print '-v         -- Display video preview (debug mode)'
+            print '-m <mask>  -- Set detector mask to <mask>'
             print '-f <file>  -- Write statistics to <file>'
             sys.exit()
         elif opt == "-i":
@@ -444,6 +517,8 @@ if __name__=="__main__":
         elif opt == "-f":
             el.useStatFile = True
             el.statFile = open(arg,'w')
+        elif opt == "-m":
+            el.detectorMask = int(arg)
     
     if not os.path.isdir('statistics'):
         os.mkdir('statistics')
