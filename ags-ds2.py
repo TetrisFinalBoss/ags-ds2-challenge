@@ -4,7 +4,7 @@
 """ags-ds2.py: A German Spy's Devil Summoner 2 ellipses challenge."""
 
 __author__      = "TetrisFinalBoss"
-__version__     = "0.4.0"
+__version__     = "0.4.1"
 
 import sys
 import cv2
@@ -47,34 +47,35 @@ class DialogLocator:
             return False
         
         return True
-    
-class CircumstancesExplainDetector:
+
+class SomethingExplainedDetector:
     MATCHMINIMUM = 0.4
     
-    SEARCH_WINDOW = {'left':10, 'top':10, 'right':400, 'bottom':84}
+    QUOT_WINDOW = {'left':20, 'top':15, 'right':50, 'bottom':42}
+    EXPL_WINDOW = {'left':20, 'top':15, 'right':400, 'bottom':42}
     
     def __init__(self):
         self.__count = 0
         self.__ncount = 0
         
-        self.__ec1Pattern = cv2.imread(os.path.dirname(sys.argv[0]) + "/ec1_pattern.png",cv2.IMREAD_GRAYSCALE)
-        self.__ec2Pattern = cv2.imread(os.path.dirname(sys.argv[0]) + "/ec2_pattern.png",cv2.IMREAD_GRAYSCALE)
+        self.__quotPattern = cv2.imread(os.path.dirname(sys.argv[0]) + "/quot_pattern.png",cv2.IMREAD_GRAYSCALE)
+        self.__explPattern = cv2.imread(os.path.dirname(sys.argv[0]) + "/expl_pattern.png",cv2.IMREAD_GRAYSCALE)
         
-        self.__ec1Dim = self.__ec1Pattern.shape
-        self.__ec2Dim = self.__ec2Pattern.shape
+        self.__quotDim = self.__quotPattern.shape
+        self.__explDim = self.__explPattern.shape
     
     def detect(self, img):
         ret = []
         
-        # Search for patterns, first 'explained'
-        res = cv2.matchTemplate(img[self.SEARCH_WINDOW['top']:self.SEARCH_WINDOW['bottom'],
-                                    self.SEARCH_WINDOW['left']:self.SEARCH_WINDOW['right']],
-                                self.__ec1Pattern,
+        # Search for patterns, first quotation mark
+        res = cv2.matchTemplate(img[self.QUOT_WINDOW['top']:self.QUOT_WINDOW['bottom'],
+                                    self.QUOT_WINDOW['left']:self.QUOT_WINDOW['right']],
+                                self.__quotPattern,
                                 cv2.TM_SQDIFF_NORMED)
         minmax = cv2.minMaxLoc(res)
         if minmax[0] < self.MATCHMINIMUM:
-            top_left = tsum(minmax[2], (self.SEARCH_WINDOW['left'],self.SEARCH_WINDOW['top']))
-            bottom_right = tsum(top_left, (self.__ec1Dim[1],self.__ec1Dim[0]))
+            top_left = tsum(minmax[2], (self.QUOT_WINDOW['left'],self.QUOT_WINDOW['top']))
+            bottom_right = tsum(top_left, (self.__quotDim[1],self.__quotDim[0]))
             
             ret.append((top_left,bottom_right))
         else:
@@ -82,15 +83,15 @@ class CircumstancesExplainDetector:
             self.__ncount = 0
             return ret
         
-        # Second 'circumstances'
-        res = cv2.matchTemplate(img[self.SEARCH_WINDOW['top']:self.SEARCH_WINDOW['bottom'],
-                                    self.SEARCH_WINDOW['left']:self.SEARCH_WINDOW['right']],
-                                self.__ec2Pattern,
+        # Second 'explained' word
+        res = cv2.matchTemplate(img[self.EXPL_WINDOW['top']:self.EXPL_WINDOW['bottom'],
+                                    self.EXPL_WINDOW['left']:self.EXPL_WINDOW['right']],
+                                self.__explPattern,
                                 cv2.TM_SQDIFF_NORMED)
         minmax = cv2.minMaxLoc(res)
         if minmax[0] < self.MATCHMINIMUM:
-            top_left = tsum(minmax[2], (self.SEARCH_WINDOW['left'],self.SEARCH_WINDOW['top']))
-            bottom_right = tsum(top_left, (self.__ec2Dim[1],self.__ec2Dim[0]))
+            top_left = tsum(minmax[2], (self.EXPL_WINDOW['left'],self.EXPL_WINDOW['top']))
+            bottom_right = tsum(top_left, (self.__explDim[1],self.__explDim[0]))
             
             ret.append((top_left,bottom_right))
         else:
@@ -114,10 +115,70 @@ class CircumstancesExplainDetector:
         self.__count = 0
     
     def name(self):
-        return "'explained the circumstances'"
+        return "'someone explained something'"
     
     def uniqueObjects(self):
         return False
+        
+    def newObjectsCount(self):
+        return self.__ncount
+    
+class CircumstancesExplainedDetector:
+    MATCHMINIMUM = 0.4
+    
+    SEARCH_WINDOW = {'left':10, 'top':10, 'right':400, 'bottom':84}
+    
+    def __init__(self):
+        self.__count = 0
+        self.__ncount = 0
+        self.__pobj = []
+        
+        self.__ec1Pattern = cv2.imread(os.path.dirname(sys.argv[0]) + "/etc_pattern.png",cv2.IMREAD_GRAYSCALE)
+        self.__ec1Dim = self.__ec1Pattern.shape
+    
+    def detect(self, img):
+        ret = self.__pobj
+        
+        # Search for pattern
+        res = cv2.matchTemplate(img[self.SEARCH_WINDOW['top']:self.SEARCH_WINDOW['bottom'],
+                                    self.SEARCH_WINDOW['left']:self.SEARCH_WINDOW['right']],
+                                self.__ec1Pattern,
+                                cv2.TM_SQDIFF_NORMED)
+        minmax = cv2.minMaxLoc(res)
+        if minmax[0] < self.MATCHMINIMUM:
+            top_left = tsum(minmax[2], (self.SEARCH_WINDOW['left'],self.SEARCH_WINDOW['top']))
+            bottom_right = tsum(top_left, (self.__ec1Dim[1],self.__ec1Dim[0]))
+            
+            ret = [(top_left,bottom_right)]
+            
+            self.__pobj = ret
+            
+            self.__ncount = self.__count==0 and 1 or 0
+            self.__count = 1
+        else:
+            # Nothing is found, but if we've already found something in this dialog box
+            # let's assume that this object is still present, because this detector is blocking one
+            self.__count = len(self.__pobj)
+            self.__ncount = 0
+        
+        return ret
+    
+    def reset(self):
+        self.__count = 0
+        self.__ncount = 0
+        self.__pobj = []
+    
+    def dialogClosed(self):
+        # If no dialog arrow is found reset all values
+        self.__ncount = 0
+        self.__count = 0
+        self.__pobj = []
+    
+    def name(self):
+        return "'explained the circumstances'"
+    
+    def uniqueObjects(self):
+        return True
         
     def newObjectsCount(self):
         return self.__ncount
@@ -292,7 +353,8 @@ class EllipsesSearcher:
         
         self.__detectors.append(MeaningfulSilenceDetector())
         self.__detectors.append(MidSentenceEllipsesDetector())
-        self.__detectors.append(CircumstancesExplainDetector())
+        self.__detectors.append(CircumstancesExplainedDetector())
+        self.__detectors.append(SomethingExplainedDetector())
         
         # Init dialog locator
         self.__dialogLocator = DialogLocator()
