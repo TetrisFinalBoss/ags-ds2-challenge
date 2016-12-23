@@ -4,7 +4,7 @@
 """ags-ds2.py: A German Spy's Devil Summoner 2 ellipses challenge."""
 
 __author__      = "TetrisFinalBoss"
-__version__     = "0.4.1"
+__version__     = "0.4.2"
 
 import sys
 import cv2
@@ -119,6 +119,9 @@ class SomethingExplainedDetector:
     
     def uniqueObjects(self):
         return False
+    
+    def objectsCount(self):
+        return self.__count
         
     def newObjectsCount(self):
         return self.__ncount
@@ -179,6 +182,9 @@ class CircumstancesExplainedDetector:
     
     def uniqueObjects(self):
         return True
+    
+    def objectsCount(self):
+        return self.__count
         
     def newObjectsCount(self):
         return self.__ncount
@@ -253,6 +259,9 @@ class MeaningfulSilenceDetector:
     
     def uniqueObjects(self):
         return True
+    
+    def objectsCount(self):
+        return self.__count
         
     def newObjectsCount(self):
         return self.__ncount
@@ -335,6 +344,9 @@ class MidSentenceEllipsesDetector:
     
     def uniqueObjects(self):
         return False
+    
+    def objectsCount(self):
+        return self.__count
         
     def newObjectsCount(self):
         return self.__ncount
@@ -346,6 +358,9 @@ class EllipsesSearcher:
     
     # Dialog box window
     DIALOG = {'left':104,'top':248,'right':538,'bottom':340}
+    
+    # Dialog box highlight
+    DIALOG_HIGHLIGHT = {'lt': (1,1), 'br': (432, 90)}
     
     def __init__(self):
         # Init detectors
@@ -361,6 +376,7 @@ class EllipsesSearcher:
         
         # Reset other values
         self.__total = len(self.__detectors)*[0]
+        self.__frames = len(self.__detectors)*[0]
         
         self.snapshots = False
         self.statFile = None
@@ -375,7 +391,6 @@ class EllipsesSearcher:
         return t
     
     def __writeUserStatObject(self, det, m, s):
-        # Write stats to user specified file, if enabled
         if self.useStatFile:
             self.statFile.write("%s is found at %s:%s\n"%(det,m,s))
             self.statFile.flush()
@@ -386,11 +401,10 @@ class EllipsesSearcher:
             self.statFile.flush()
     
     def __writeUserStatTotal(self, lst):
-        # And also write to user specified file
         if self.useStatFile:
             self.statFile.write("===\n")
             for e in lst:
-                self.statFile.write("%s is said %d times\n"%e)
+                self.statFile.write("%s is said %d times (%d frames)\n"%e)
             self.statFile.write("\n")
             self.statFile.flush()
     
@@ -401,27 +415,33 @@ class EllipsesSearcher:
         try:
             statfile = open('statistics/'+fname+'.stat','r')
             count = len(self.__detectors)*[0]
+            frames = len(self.__detectors)*[0]
             
             for ln in statfile.readlines():
-                m = re.search('([\d]+):([\d]+)\s([\d]+)',ln)
+                m = re.search('OBJECT\s([\d]+)\s([\d]+):([\d]+)',ln)
                 if m:
                     # Last parameter is object type - i.e. detector number
-                    det = int(m.group(3))
-                    self.__writeUserStatObject(self.__detectors[det].name(),m.group(1),m.group(2))
+                    det = int(m.group(1))
+                    self.__writeUserStatObject(self.__detectors[det].name(),m.group(2),m.group(3))
                     # And increase counter
                     count[det]+=1
+                    continue
+                m = re.search('FRAMES\s([\d]+)\s([\d]+)',ln)
+                if m:
+                    frames[int(m.group(1))]+=int(m.group(2))
                     continue
             
             statfile.close()
             
             # Increase total value
             self.__total = map(lambda x,y: x+y, count, self.__total)
+            self.__frames = map(lambda x,y: x+y, frames, self.__frames)
             
             # Display progress
             print "Reading statistics from file: Done  -  %d objects detected"%(sum(count))
             
             # And also write to user specified file
-            self.__writeUserStatTotal(zip(map(lambda x: x.name(), self.__detectors), count))
+            self.__writeUserStatTotal(zip(map(lambda x: x.name(), self.__detectors), count, frames))
             
             # And that's it, this file is done
             return True
@@ -438,6 +458,7 @@ class EllipsesSearcher:
             return
             
         count = len(self.__detectors)*[0]
+        frames = len(self.__detectors)*[0]
 
         # Reset detectors before apply them to new file                
         for d in self.__detectors:
@@ -496,10 +517,18 @@ class EllipsesSearcher:
                         self.__writeUserStatObject(self.__detectors[i].name(),secs/60,secs%60)
                         
                         # And store stats for future use
-                        statfile.write('%d:%d %d\n'%(secs/60,secs%60,i))
+                        statfile.write('OBJECT %d %d:%d\n'%(i,secs/60,secs%60))
 
                 if len(items):
                     objects += items
+                
+                # We check stored objects count value for detector instead len(items)
+                # This way detectors can return objects just for preview without possible effect on statistics
+                if self.__detectors[i].objectsCount()>0:
+                    # First of all - increase frame counter for that object
+                    frames[i] += 1
+                    self.__frames[i] += 1
+                    
                     # If we found unique object (i.e. there can't be any other objects in this picture) - stop applying detectors
                     if self.__detectors[i].uniqueObjects():
                         break
@@ -518,6 +547,8 @@ class EllipsesSearcher:
 
             # Show preview window if enabled             
             if self.preview:
+                if not dialogClosed:
+                    cv2.rectangle(t, self.DIALOG_HIGHLIGHT['lt'], self.DIALOG_HIGHLIGHT['br'], 0xff)
                 cv2.imshow("Picture",t)
                 k = cv2.waitKey(previewRate) & 0xff
                 if k==ord('q'):
@@ -539,15 +570,19 @@ class EllipsesSearcher:
         print "Processing video: Done - %d objects found"%(sum(count))
         
         # And also write to user specified file
-        self.__writeUserStatTotal(zip(map(lambda x: x.name(), self.__detectors), count))
+        self.__writeUserStatTotal(zip(map(lambda x: x.name(), self.__detectors), count, frames))
+        
+        # And save frame statistics
+        for e in enumerate(frames):
+            statfile.write('FRAMES %d %d\n'%e)
         
         v.release()
         statfile.close()
     
     def total(self):
         ret = ""
-        for e in zip(map(lambda x: x.name(), self.__detectors), self.__total):
-            ret = ret+"%s is said %d times\n"%e
+        for e in zip(map(lambda x: x.name(), self.__detectors), self.__total, self.__frames):
+            ret = ret+"%s is said %d times (%d frames)\n"%e
         return ret
 
 if __name__=="__main__":
