@@ -369,61 +369,75 @@ class EllipsesSearcher:
         self.preview = False
         self.detectorMask = 0xff
         
-    def __initCounter(self, counter):
-        counter.r
-            
     def __thresh(self,img):
         gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
         ret, t = cv2.threshold(gray, self.THRESHOLD_VALUE, self.THRESHOLD_COLOR, cv2.THRESH_TOZERO)
         return t
-
-    def count(self,fname):
+    
+    def __writeUserStatObject(self, det, m, s):
+        # Write stats to user specified file, if enabled
+        if self.useStatFile:
+            self.statFile.write("%s is found at %s:%s\n"%(det,m,s))
+            self.statFile.flush()
+    
+    def __writeUserStatHeader(self, fname):
         if self.useStatFile:
             self.statFile.write("===\n%s\n===\n"%(fname))
             self.statFile.flush()
+    
+    def __writeUserStatTotal(self, lst):
+        # And also write to user specified file
+        if self.useStatFile:
+            self.statFile.write("===\n")
+            for e in lst:
+                self.statFile.write("%s is said %d times\n"%e)
+            self.statFile.write("\n")
+            self.statFile.flush()
+    
+    def __readStat(self,fname):
+        if self.ignoreStat:
+            return False
             
-        count = len(self.__detectors)*[0]
+        try:
+            statfile = open('statistics/'+fname+'.stat','r')
+            count = len(self.__detectors)*[0]
+            
+            for ln in statfile.readlines():
+                m = re.search('([\d]+):([\d]+)\s([\d]+)',ln)
+                if m:
+                    # Last parameter is object type - i.e. detector number
+                    det = int(m.group(3))
+                    self.__writeUserStatObject(self.__detectors[det].name(),m.group(1),m.group(2))
+                    # And increase counter
+                    count[det]+=1
+                    continue
+            
+            statfile.close()
+            
+            # Increase total value
+            self.__total = map(lambda x,y: x+y, count, self.__total)
+            
+            # Display progress
+            print "Reading statistics from file: Done  -  %d objects detected"%(sum(count))
+            
+            # And also write to user specified file
+            self.__writeUserStatTotal(zip(map(lambda x: x.name(), self.__detectors), count))
+            
+            # And that's it, this file is done
+            return True
+            
+        except (OSError, IOError):
+            return False
+
+    def count(self,fname):
+        self.__writeUserStatHeader(fname)
         
         # First - try to get statistics from file,
         # so we don't have to recalculate stats once again
-        if not self.ignoreStat:
-            try:
-                statfile = open('statistics/'+fname+'.stat','r')
-                
-                for ln in statfile.readlines():
-                    m = re.search('([\d]+):([\d]+)\s([\d]+)',ln)
-                    if m:
-                        # Last parameter is object type - i.e. detector number
-                        det = int(m.group(3))
-                        # Write stats to user specified file, if enabled
-                        if self.useStatFile:
-                            self.statFile.write("%s is found at %s:%s (from stat file)\n"%(self.__detectors[det].name(),m.group(1),m.group(2)))
-                            self.statFile.flush()
-                        # And increase counter
-                        count[det]+=1
-                
-                statfile.close()
-                
-                # Increase total value
-                self.__total = map(lambda x,y: x+y, count, self.__total)
-                
-                # Display progress
-                print "Reading statistics from file: Done  -  %d objects detected"%(sum(count))
-                
-                # And also write to user specified file
-                if self.useStatFile:
-                    self.statFile.write("===\n")
-                    for e in zip(map(lambda x: x.name(), self.__detectors), count):
-                        self.statFile.write("%s is said %d times\n"%e)
-                    self.statFile.write("\n")
-                    self.statFile.flush()
-                
-                # And that's it, this file is done
-                return
-                
-            except (OSError, IOError):
-                # Reset counter value
-                count = len(self.__detectors)*[0]
+        if self.__readStat(fname):
+            return
+            
+        count = len(self.__detectors)*[0]
 
         # Reset detectors before apply them to new file                
         for d in self.__detectors:
@@ -479,9 +493,7 @@ class EllipsesSearcher:
                     
                     for j in xrange(ncount):
                         # Write to user specified file
-                        if self.useStatFile:
-                            self.statFile.write("%s is found at %d:%d\n"%(self.__detectors[i].name(),secs/60,secs%60))
-                            self.statFile.flush()
+                        self.__writeUserStatObject(self.__detectors[i].name(),secs/60,secs%60)
                         
                         # And store stats for future use
                         statfile.write('%d:%d %d\n'%(secs/60,secs%60,i))
@@ -527,12 +539,7 @@ class EllipsesSearcher:
         print "Processing video: Done - %d objects found"%(sum(count))
         
         # And also write to user specified file
-        if self.useStatFile:
-            self.statFile.write("===\n")
-            for e in zip(map(lambda x: x.name(), self.__detectors), count):
-                self.statFile.write("%s is said %d times\n"%e)
-            self.statFile.write("\n")
-            self.statFile.flush()
+        self.__writeUserStatTotal(zip(map(lambda x: x.name(), self.__detectors), count))
         
         v.release()
         statfile.close()
