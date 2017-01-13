@@ -4,7 +4,7 @@
 """ags-ds2.py: A German Spy's Devil Summoner 2 ellipses challenge."""
 
 __author__      = "TetrisFinalBoss"
-__version__     = "0.4.2"
+__version__     = "0.4.3"
 
 import sys
 import cv2
@@ -19,7 +19,7 @@ AGS_DS2_PLAYLIST = 'PL_ftpUY_ldBTtHOUQLt5irghX1XfIzoy-'
 def getFile(media):
     for stream in media.streams:
         if stream.dimensions[1] == 360 and stream.extension=='mp4':
-            m = re.search('\[Part\s?([\d]+)\]',media.title)
+            m = re.search('\[Part\s?([\d]+)(\s-\sFinal)?\]',media.title)
             fname = "%s - %s.%s"%(m.group(1),media.videoid,stream.extension)
             if not os.path.isfile(fname):
                 print 'Downloading video %s from playlist'%(m.group(1))
